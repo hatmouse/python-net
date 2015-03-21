@@ -1,4 +1,6 @@
-__author__ = 'Home'
+__author__ = 'mathew'
+__email__='ahatm0use@gmail.com'
+
 import socket
 import struct
 
@@ -8,6 +10,8 @@ s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))
 def eth_addr (a) :
     b = "%.2x-%.2x-%.2x-%.2x-%.2x-%.2x" % (a[0] , a[1] , a[2], a[3], a[4], a[5])
     return b
+
+#split the header of eth
 class eth():
     def __init__(self,header):
         self.header=header
@@ -21,6 +25,8 @@ class eth():
         print('Protocol: ',self.protocol)
         print('Destination_MAC: ',Destination_MAC)
         print('Source_MAC: ',Source_MAC)
+
+#split the header of IP
 class ip():
     def __init__(self,header):
         self.header=header
@@ -39,6 +45,8 @@ class ip():
         print('Protocol: ',self.protocol)
         print('Destination-Address: ',source_addr)
         print('Source_Addrress',dest_addr)
+
+#split the header of TCP
 class tcp():
     def __init__(self,header):
         self.header=header
@@ -55,16 +63,18 @@ class tcp():
         print('Sequence: ',sequence)
         print('ACK: ',ack)
         print('Length: ',length)
+
 while True:
     packet,address=s.recvfrom(65535)
     ethheader=eth(packet[:14])
     ethheader.extract()
+    # the packet is IP
     if ethheader.protocol==8:
         ipheader=ip(packet[14:34])
         ipheader.extract()
+        # the packet is TCP
         if ipheader.protocol==6:
             tcpheader=tcp(packet[34:54])
             tcpheader.extract()
-            # data
             data=packet[54:]
             print('Data:',data)
