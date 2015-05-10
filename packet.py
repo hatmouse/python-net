@@ -39,11 +39,11 @@ class ETHER(object):
         return ethernet
     def unpack(self,packet):
         _eth=layer()
-        unpacked=struct.unpack("!6B6BH",packet)
+        unpacked=struct.unpack("!6B6BH",packet[:14])
         _eth.type=socket.ntohs(unpacked[12])
         _eth.src=eth_addr(unpacked[0:6])
         _eth.dst=eth_addr(unpacked[6:12])
-        print('\n\n|+|----eth----')
+        print('|+|----eth----')
         print('   Protocol: ',_eth.type)
         print('   Destination_MAC: ',_eth.dst)
         print('   Source_MAC: ',_eth.src)
@@ -244,36 +244,39 @@ class UDP(object):
         packet = struct.pack('!HHHH',
             self.src, self.dst, length, 0)
         return packet
-
+    
 def Byte2Hex(str):
     return ''.join( ["%02X " % x for x in str] ).strip()
 
-def SendEthPacket(src_host,dst_host,src_port=1234,dst_port=80):
+# Send Raw Ethernet Frame: You must set the mac-address correctly
+def SendEthPacket(src_host,dst_host,src_port=1234,dst_port=80,data='TEST'):
     print("|+|Local Machine: %s"% (src_host))
     print("|+|Remote Machine: %s"% (dst_host))
-    data='TEST'
     print("|+|Data to inject: %s"%(data))
     tcpobj=TCP()
     ipobj=IP()
     ethobj=ETHER()
-    #IP packet
+    #Ethernet Frame: you need set to the checksum correctly.
     packet=ethobj.pack()+ipobj.pack(src_host,dst_host)+tcpobj.pack(src_port,dst_port,src_host,dst_host)
     print(Byte2Hex(packet))
-    #pay attention to the protocal
-    rawSocket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW,socket.htons(0x0800))    
+    #Note that: the protocal
+    rawSocket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW,socket.htons(0x0800))
+    #Note that: select the correct card
     rawSocket.bind(("wlan0",0))
     rawSocket.send(packet)
-    response,address = rawSocket.recvfrom(2048)
-    print(Byte2Hex(response))
-    response=response[14:]
+    response,address = rawSocket.recvfrom(2048)    
     print('|+|RESPONSE:')
+    print(Byte2Hex(response))
+    eth=ethobj.unpack(response)
+    response=response[14:]
     ip=ipobj.unpack(response)
     response=response[ip.ihl:]
     tcp=tcpobj.unpack(response)
-def SendIPacket(src_host,dst_host,src_port=1234,dst_port=80):
+    
+#Send IP packet: the system can automatically forwarding the data packet.
+def SendIPacket(src_host,dst_host,src_port=1234,dst_port=80,data='TEST'):
     print("|+|Local Machine: %s"% (src_host))
     print("|+|Remote Machine: %s"% (dst_host))
-    data='TEST'
     print("|+|Data to inject: %s"%(data))
     tcpobj=TCP()
     ipobj=IP()
@@ -281,12 +284,13 @@ def SendIPacket(src_host,dst_host,src_port=1234,dst_port=80):
     packet=ipobj.pack(src_host,dst_host)+tcpobj.pack(src_port,dst_port,src_host,dst_host)
     print(Byte2Hex(packet))
     rawSocket = socket.socket(socket.AF_INET, socket.SOCK_RAW,socket.IPPROTO_TCP)
-    #rawSocket.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+    # !!!what ?
+    rawSocket.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)    
     rawSocket.sendto(packet,(dst_host,0))
     rawSocket.settimeout(20)
     response,address = rawSocket.recvfrom(2048)
-    print(Byte2Hex(response))
     print('|+|RESPONSE:')
+    print(Byte2Hex(response))
     ip=ipobj.unpack(response)
     response=response[ip.ihl:]
     tcp=tcpobj.unpack(response)
@@ -297,6 +301,7 @@ def SniffPackets():
     #ETH_P_RARP 0x8035  只接受发往本机mac的rarp类型的数据帧
     #ETH_P_ALL  0x0003  接收发往本机mac的所有类型ip arp rarp的数据帧, 接收从本机发出的所有类型的数据帧.(混杂模式打开的情况下,会接收到非发往本地mac的数据帧)
     s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))
+    #rawSocket.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)    
     while True:
         packet,address=s.recvfrom(65535)
         ethobj=ETHER()
@@ -316,6 +321,7 @@ def main():
     parser.add_option('-s','--src',dest='src',type='string',help='Source IP Address',metavar='IP')
     parser.add_option('-d','--dst',dest='dst',type='string',help='Destination IP Address',metavar='IP')
     parser.add_option('-f','--sniff',action="store_true", default=False,dest='dowhat')
+    #if you want to send Ethernet frame,you can add this option
     parser.add_option('-e','--ether',action="store_true", default=False,dest='iseth') 
     options,args=parser.parse_args()
     if options.dowhat:
