@@ -1,14 +1,18 @@
-__author__ = 'Home'
+__author__ = 'Mathew'
 __email__ = 'ahatm0use@gmail.com'
+# Send IP packet or Ethernet Frame && Network Sniff
+
 import socket
 import struct
 import random
 from optparse import OptionParser
 
 ETH_P_IP = 0x0800
+ETH_P_ARP= 0x0806
 
 class layer():
     pass
+
 def checksum(data):
     s=0
     n=len(data)%2
@@ -39,15 +43,54 @@ class ETHER(object):
         return ethernet
     def unpack(self,packet):
         _eth=layer()
-        unpacked=struct.unpack("!6B6BH",packet[:14])
-        _eth.type=socket.ntohs(unpacked[12])
-        _eth.src=eth_addr(unpacked[0:6])
-        _eth.dst=eth_addr(unpacked[6:12])
+        eth=struct.unpack("!6s6sH",packet[:14])
+        _eth.type=socket.ntohs(eth[2])
+        _eth.src=Byte2Hex(eth[0])
+        _eth.dst=Byte2Hex(eth[1])
         print('|+|----eth----')
         print('   Protocol: ',_eth.type)
         print('   Destination_MAC: ',_eth.dst)
         print('   Source_MAC: ',_eth.src)
         return _eth
+
+class ARP(object):
+    def __init__(self):
+        self.hardware=0x0001
+        self.protocal=0x0800
+        self.len_mac=0x0006
+        self.len_protocal=0x0004
+        self.op=0x0001
+        self.src_mac=''
+        self.src_ip=''
+        self.dst_mac=''
+        self.dst_ip=''
+    def pack(self,op=0x0001,src_mac=b'\x9C\xB7\x0D\xE6\x3E\x7C',src_ip='',dst_mac=b'\x00\x00\x00\x00\x00\x00',dst_ip=''):
+        self.src_mac=src_mac
+        self.src_ip=socket.inet_aton(src_ip)
+        self.dst_mac=dst_mac
+        self.dst_ip=socket.inet_aton(dst_ip)
+        arp=struct.pack("!HHBBH", self.hardware, self.protocal, self.len_mac, self.len_protocal,self.op)+struct.pack("!6s4s6s4s",self.src_mac,self.src_ip,self.dst_mac,self.dst_ip)
+        return arp
+    def unpack(self,packetet):
+        _arp=layer()
+        arp=struct.unpack("!HHBBH6s4s6s4s",packetet)
+        _arp.hardware=arp[0]
+        _arp.protocal=arp[1]
+        _arp.len_mac=arp[2]
+        _arp.len_protocal=arp[3]
+        _arp.op=arp[4]
+        _arp.src_mac=Byte2Hex(arp[5])
+        _arp.src_ip=socket.inet_ntoa(arp[6])
+        _arp.dst_mac=Byte2Hex(arp[7])
+        _arp.dst_ip=socket.inet_ntoa(arp[8])
+        print('|+|----ARP----')
+        print('   Hardware: ',_arp.hardware)
+        print('   Protocal: ',hex(_arp.protocal))
+        print('   OP: ',_arp.op)
+        print('   Destination-IP: ',_arp.src_ip)
+        print('   Destination-Mac: ',_arp.src_mac)
+        return _arp
+        
 class IP(object):
     def __init__(self):
         self.version=4
@@ -248,21 +291,54 @@ class UDP(object):
 def Byte2Hex(str):
     return ''.join( ["%02X " % x for x in str] ).strip()
 
+def Hex2Byte(hexstr):
+    bytes = []
+    hexstr = ''.join( hexstr.split(' '))
+    print(hexstr)
+    for i in range(0,len(hexstr),2):
+        bytes.append(chr(int(hexstr[i:i+2],16)).encode())
+    return b''.join(bytes)
+
+def SendARP(dst_ip='192.168.199.103'):
+    #Note that: the protocal
+    rawSocket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW,socket.htons(0x0806))
+    #Note that: select the correct card
+    rawSocket.bind(("wlan0",0))
+    src_mac=rawSocket.getsockname()[4]
+    src_ip='192.168.199.190'
+    dst_ip='192.168.199.103'
+    dst_mac=b'\xFF\xFF\xFF\xFF\xFF\xFF'
+    print("|+|Local Machine Mac-Address: %s"% (Byte2Hex(src_mac)))    
+    print("|+|Remote Machine IP-Address: %s"% (dst_ip))    
+    ethobj=ETHER()
+    arpobj=ARP()
+    packet=ethobj.pack(src_mac,dst_mac=dst_mac,type=ETH_P_ARP)+arpobj.pack(src_mac=src_mac,src_ip=src_ip, dst_ip=dst_ip)
+    rawSocket.send(packet)
+    response,address = rawSocket.recvfrom(2048)
+    print('|+|RESPONSE:')
+    print(Byte2Hex(response))
+    eth=ethobj.unpack(response)
+    response=response[14:]
+    arp=arpobj.unpack(response)
+    
 # Send Raw Ethernet Frame: You must set the mac-address correctly
 def SendEthPacket(src_host,dst_host,src_port=1234,dst_port=80,data='TEST'):
-    print("|+|Local Machine: %s"% (src_host))
-    print("|+|Remote Machine: %s"% (dst_host))
+    #Note that: the protocal
+    rawSocket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW,socket.htons(0x0800))
+    #Note that: select the correct card
+    rawSocket.bind(("wlan0",0))
+    src_mac=rawSocket.getsockname()[4]
+    dst_mac=b'\xD4\xEE\x07\x0E\x47\x7E'
+    print("|+|Local Machine Mac-Address: %s"% (Byte2Hex(src_mac)))
+    print("|+|Local Machine IP-Address: %s"% (src_host))
+    print("|+|Remote Machine IP-Address: %s"% (dst_host))
     print("|+|Data to inject: %s"%(data))
     tcpobj=TCP()
     ipobj=IP()
     ethobj=ETHER()
     #Ethernet Frame: you need set to the checksum correctly.
-    packet=ethobj.pack()+ipobj.pack(src_host,dst_host)+tcpobj.pack(src_port,dst_port,src_host,dst_host)
+    packet=ethobj.pack(src_mac,dst_mac=dst_mac)+ipobj.pack(src_host,dst_host)+tcpobj.pack(src_port,dst_port,src_host,dst_host)
     print(Byte2Hex(packet))
-    #Note that: the protocal
-    rawSocket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW,socket.htons(0x0800))
-    #Note that: select the correct card
-    rawSocket.bind(("wlan0",0))
     rawSocket.send(packet)
     response,address = rawSocket.recvfrom(2048)    
     print('|+|RESPONSE:')
@@ -323,15 +399,25 @@ def main():
     parser.add_option('-f','--sniff',action="store_true", default=False,dest='dowhat')
     #if you want to send Ethernet frame,you can add this option
     parser.add_option('-e','--ether',action="store_true", default=False,dest='iseth') 
+    parser.add_option('-a','--arp',action="store_true", default=False,dest='isarp') 
     options,args=parser.parse_args()
+    #Example:
+    # @:python3 packet.py -d linevery.com -e     Send Ethernet Frame
+    # @:python3 packet.py -d linevery.com        Send IP Packet
+    # @:python3 packet.py -f                     Sniff Packet
+    # @:python3 packet.py -a                     Send ARP Packet
+    
     if options.dowhat:
         SniffPackets()
+    elif options.isarp:
+        SendARP()
     else:
         if options.dst==None:
             parser.print_help()
             exit(0)
         else:
             dst_host=socket.gethostbyname(options.dst)
+            # 
             dst_host='192.168.199.1'
         if options.src==None:
             src_host=socket.gethostbyname(socket.gethostname())
